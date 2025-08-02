@@ -1608,6 +1608,9 @@ export class Story extends InkObject {
               listEnumerator.next();
             }
             let value = listEnumerator.next().value;
+            if (!value) {
+              throw new Error("List enumerator returned undefined value");
+            }
             let randomItem: KeyValuePair<InkListItem, number> = {
               Key: InkListItem.fromSerializedKey(value[0]),
               Value: value[1],
