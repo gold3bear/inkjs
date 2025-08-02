@@ -37,6 +37,21 @@ import { ErrorHandler, ErrorType } from "./Error";
 
 export { InkList } from "./InkList";
 
+// Enhanced API interfaces for AVG Maker
+export interface KnotInfo {
+  name: string;
+  isValid: boolean;
+  path: string;
+  visitCount: number;
+  hasVisited?: boolean;
+}
+
+export interface ChoicePredictionResult {
+  success: boolean;
+  targetKnot: string;
+  confidence: number;
+}
+
 if (!Number.isInteger) {
   Number.isInteger = function isInteger(nVal: any) {
     return (
@@ -2542,6 +2557,212 @@ export class Story extends InkObject {
   private _asyncSaving: boolean = false;
 
   private _profiler: any | null = null; // TODO: Profiler
+
+  // Enhanced API for AVG Maker - Get current knot name
+  getCurrentKnotName(): string {
+    try {
+      if (this._state === null) {
+        return "unknown";
+      }
+
+      // Get current pointer and try to find the knot name
+      const currentPointer = this._state.currentPointer;
+      if (!currentPointer.isNull) {
+        let container = currentPointer.container;
+        
+        // Walk up the container hierarchy to find the knot
+        while (container !== null) {
+          if (container.name && this.isValidKnotName(container.name)) {
+            return container.name;
+          }
+          const parent = container.parent;
+          container = parent instanceof Container ? parent : null;
+        }
+      }
+
+      // Fallback: try to extract from path
+      const pathString = this._state.currentPathString;
+      if (pathString) {
+        const pathParts = pathString.split('.');
+        for (const part of pathParts) {
+          if (this.isValidKnotName(part)) {
+            return part;
+          }
+        }
+        
+        // Special case: if path is just a number (like "0"), this is likely the root/initial node
+        if (pathParts.length === 1 && /^\d+$/.test(pathParts[0])) {
+          // Use filename as the root knot name (e.g., "story" for story.ink)
+          // This handles the case where the initial content is in an unnamed root container
+          return "story"; // Default name for the root knot
+        }
+      }
+
+      return "unknown";
+    } catch (error) {
+      console.warn("getCurrentKnotName error:", error);
+      return "unknown";
+    }
+  }
+
+  // Enhanced API - Get current knot info
+  getCurrentKnotInfo(): KnotInfo {
+    const knotName = this.getCurrentKnotName();
+    const visitCount = this.state.VisitCountAtPathString(knotName) || 0;
+    return {
+      name: knotName,
+      isValid: knotName !== "unknown",
+      path: this._state?.currentPathString || "",
+      visitCount: visitCount
+    };
+  }
+
+  // Enhanced API - Predict choice target
+  predictChoiceTarget(choiceIndex: number): ChoicePredictionResult {
+    try {
+      if (choiceIndex >= this.currentChoices.length || choiceIndex < 0) {
+        return {
+          success: false,
+          targetKnot: "unknown",
+          confidence: 0
+        };
+      }
+
+      const choice = this.currentChoices[choiceIndex];
+      if (!choice.targetPath) {
+        return {
+          success: false,
+          targetKnot: "unknown", 
+          confidence: 0
+        };
+      }
+
+      // Try to predict the target knot from the choice path
+      const pathString = choice.targetPath.toString();
+      const pathParts = pathString.split('.');
+      
+      for (const part of pathParts) {
+        if (this.isValidKnotName(part)) {
+          return {
+            success: true,
+            targetKnot: part,
+            confidence: 0.8
+          };
+        }
+      }
+
+      return {
+        success: false,
+        targetKnot: "unknown",
+        confidence: 0
+      };
+    } catch (error) {
+      console.warn("predictChoiceTarget error:", error);
+      return {
+        success: false,
+        targetKnot: "unknown",
+        confidence: 0
+      };
+    }
+  }
+
+  // Enhanced API - Get all knot names
+  getAllKnotNames(): string[] {
+    try {
+      const knotNames: string[] = [];
+      
+      // Traverse the main content container to find all knots
+      this.collectKnotNames(this._mainContentContainer, knotNames);
+      
+      // Filter and deduplicate
+      return Array.from(new Set(knotNames.filter(name => this.isValidKnotName(name))));
+    } catch (error) {
+      console.warn("getAllKnotNames error:", error);
+      return [];
+    }
+  }
+
+  // Enhanced API - Get specific knot info
+  getKnotInfo(knotName: string): KnotInfo | null {
+    try {
+      if (!this.isValidKnotName(knotName)) {
+        return null;
+      }
+
+      const visitCount = this.state.VisitCountAtPathString(knotName) || 0;
+      const hasVisited = visitCount > 0;
+
+      return {
+        name: knotName,
+        isValid: true,
+        path: knotName,
+        visitCount: visitCount,
+        hasVisited: hasVisited
+      };
+    } catch (error) {
+      console.warn("getKnotInfo error:", error);
+      return null;
+    }
+  }
+
+  // Helper method to validate knot names (filter out internal identifiers)
+  private isValidKnotName(name: string): boolean {
+    if (!name || typeof name !== 'string') {
+      return false;
+    }
+
+    // Filter out internal identifiers that we know about
+    const internalPatterns = [
+      /^c-\d+$/,      // Container identifiers like "c-0", "c-1"
+      /^g-\d+$/,      // Gather identifiers like "g-0", "g-1"
+      /^b$/,          // Branch identifier "b"
+      /^\d+$/,        // Pure numbers
+      /^_/,           // Internal variables starting with underscore
+      /^__/           // Double underscore internal names
+    ];
+
+    for (const pattern of internalPatterns) {
+      if (pattern.test(name)) {
+        return false;
+      }
+    }
+
+    // Must contain at least one letter to be a valid knot name
+    return /[a-zA-Z]/.test(name) && name.length > 0;
+  }
+
+  // Helper method to collect knot names from containers
+  private collectKnotNames(container: Container, names: string[]): void {
+    if (!container) {
+      return;
+    }
+
+    // Add current container name if valid
+    if (container.name && this.isValidKnotName(container.name)) {
+      names.push(container.name);
+    }
+
+    // Recursively check child containers
+    if (container.content) {
+      for (const child of container.content) {
+        if (child instanceof Container) {
+          this.collectKnotNames(child, names);
+        }
+      }
+    }
+
+    // Check named content
+    if (container.namedContent) {
+      for (const [name, content] of container.namedContent) {
+        if (this.isValidKnotName(name)) {
+          names.push(name);
+        }
+        if (content instanceof Container) {
+          this.collectKnotNames(content, names);
+        }
+      }
+    }
+  }
 }
 
 export namespace Story {
