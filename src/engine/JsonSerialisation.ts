@@ -542,6 +542,11 @@ export class JsonSerialisation {
     if (countFlags > 0) writer.WriteIntProperty("#f", countFlags);
 
     if (hasNameProperty) writer.WriteProperty("#n", container.name);
+    
+    // Write function marker if present
+    if ((container as any)._isFunction) {
+      writer.WriteProperty("#fn", true);
+    }
 
     if (hasTerminator) writer.WriteObjectEnd();
     else writer.WriteNull();
@@ -562,6 +567,9 @@ export class JsonSerialisation {
           container.countFlags = parseInt(terminatingObj[key]);
         } else if (key == "#n") {
           container.name = terminatingObj[key].toString();
+        } else if (key == "#fn") {
+          // Read function marker
+          (container as any)._isFunction = terminatingObj[key] === true;
         } else {
           let namedContentItem = this.JTokenToRuntimeObject(
             terminatingObj[key]

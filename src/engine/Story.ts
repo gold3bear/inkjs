@@ -1852,6 +1852,54 @@ export class Story extends InkObject {
     }
   }
 
+  // ==================== Function Detection API ====================
+  private _functionLookupCache?: Map<string, boolean>;
+
+  /**
+   * Check if a named content is an Ink function (=== function ... ===)
+   * Uses the compile-time function marker for 100% accuracy
+   */
+  public hasFunction(name: string): boolean {
+    if (!this._functionLookupCache) this._functionLookupCache = new Map();
+
+    const cache = this._functionLookupCache;
+    if (cache.has(name)) return cache.get(name)!;
+
+    const container = this._getNamedTopLevelContainer(name);
+    if (!container) { 
+      cache.set(name, false); 
+      return false; 
+    }
+
+    // Check for the compile-time function marker
+    const isFunc = (container as any)._isFunction === true;
+    cache.set(name, isFunc);
+    return isFunc;
+  }
+
+  /** List all function names (top-level named containers marked as functions at compile time) */
+  public listFunctions(): string[] {
+    const namedContent = this._mainContentContainer?.namedContent;
+    if (!namedContent) return [];
+    
+    const out: string[] = [];
+    for (const [key, _] of namedContent) {
+      if (this.hasFunction(key)) out.push(key);
+    }
+    return out;
+  }
+
+  // ==================== Private Helper for Function Detection ====================
+
+  /** Get top-level named container */
+  private _getNamedTopLevelContainer(name: string): Container | null {
+    const namedContent = this._mainContentContainer?.namedContent;
+    if (namedContent && namedContent.has(name)) {
+      return namedContent.get(name) as Container;
+    }
+    return null;
+  }
+
   public allowExternalFunctionFallbacks: boolean = false;
 
   public CallExternalFunction(

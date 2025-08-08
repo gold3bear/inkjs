@@ -251,6 +251,11 @@ export abstract class FlowBase extends ParsedObject implements INamedContent {
 
     const container = new RuntimeContainer();
     container.name = this.identifier?.name as string;
+    
+    // Mark container as function for runtime detection
+    if (this.isFunction) {
+      (container as any)._isFunction = true;
+    }
 
     if (this.story.countAllVisits) {
       container.visitsShouldBeCounted = true;
