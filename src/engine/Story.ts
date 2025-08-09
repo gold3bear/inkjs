@@ -1889,6 +1889,115 @@ export class Story extends InkObject {
     return out;
   }
 
+  // ==================== Entry Point Detection API ====================
+  
+  /**
+   * Get the entry point of the story
+   * The entry is determined by examining the root structure
+   */
+  public getEntryPoint(): string | null {
+    // In Ink, the story execution starts from the main container
+    // If the first element is a Divert, that's our entry point
+    
+    if (!this._mainContentContainer || this._mainContentContainer.content.length === 0) {
+      return null;
+    }
+    
+    // Helper function to find divert in content
+    const findDivert = (obj: any): string | null => {
+      if (!obj) return null;
+      
+      // Check if it's a Divert object (runtime)
+      if (obj.targetPathString) {
+        return obj.targetPathString;
+      }
+      
+      // Check if it's a Container with content
+      if (obj.content && Array.isArray(obj.content)) {
+        for (const item of obj.content) {
+          const result = findDivert(item);
+          if (result) return result;
+        }
+      }
+      
+      // Check for JSON divert format {"->": "target"}
+      if (obj['->']) {
+        return obj['->'];
+      }
+      
+      return null;
+    };
+    
+    // Check the first content element
+    const firstContent = this._mainContentContainer.content[0];
+    const divertTarget = findDivert(firstContent);
+    
+    if (divertTarget) {
+      return divertTarget;
+    }
+    
+    // If no divert found, check if there's actual content at root
+    // (not just the terminator/metadata)
+    for (const item of this._mainContentContainer.content) {
+      // Skip metadata and control commands
+      if (item && 
+          item.constructor.name !== 'ControlCommand' && 
+          !(item instanceof Container && item.content.length === 0)) {
+        return "__ROOT__"; // There's actual content at root level
+      }
+    }
+    
+    // No entry point found
+    return null;
+  }
+  
+  /**
+   * Check if a named content is an entry point
+   */
+  public isEntryPoint(name: string): boolean {
+    if (name === "__ROOT__") {
+      // Check if there's root-level content
+      return this._mainContentContainer?.content.length > 0;
+    }
+    
+    const container = this._getNamedTopLevelContainer(name);
+    if (!container) return false;
+    
+    // Check for explicit entry marker (future feature)
+    if ((container as any)._isEntry === true) return true;
+    
+    // Check if this is the detected entry point
+    return this.getEntryPoint() === name;
+  }
+  
+  /**
+   * Get all potential entry points (nodes with in-degree 0)
+   * This is useful for detecting orphaned content
+   */
+  public getPotentialEntryPoints(): string[] {
+    const entries: string[] = [];
+    
+    // Add root if it has content
+    if (this._mainContentContainer?.content.length > 0) {
+      entries.push("__ROOT__");
+    }
+    
+    // Add all named content that could be entries
+    const namedContent = this._mainContentContainer?.namedContent;
+    if (namedContent) {
+      for (const [name, _] of namedContent) {
+        // Skip functions and special nodes
+        if (!this.hasFunction(name) && name !== 'global decl') {
+          // Here we could check in-degree if we had the graph structure
+          // For now, just add all non-functions as potential entries
+          entries.push(name);
+        }
+      }
+    }
+    
+    return entries;
+  }
+
   // ==================== Private Helper for Function Detection ====================
 
   /** Get top-level named container */
